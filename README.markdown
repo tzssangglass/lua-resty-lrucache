@@ -151,7 +151,7 @@ local lrucache = require "resty.lrucache.pureffi"
 
 new
 ---
-`syntax: cache, err = lrucache.new(max_items [, load_factor])`
+`syntax: cache, err = lrucache.new(max_items [, opts_or_load_factor])`
 
 Creates a new cache instance. Upon failure, returns `nil` and a string
 describing the error.
@@ -159,13 +159,12 @@ describing the error.
 The `max_items` argument specifies the maximal number of items this cache can
 hold.
 
-The `load-factor` argument designates the "load factor" of the FFI-based
-hash-table used internally by `resty.lrucache.pureffi`; the default value is
-0.5 (i.e. 50%); if the load factor is specified, it will be clamped to the
-range of `[0.1, 1]` (i.e. if load factor is greater than 1, it will be
-saturated to 1; likewise, if load-factor is smaller than `0.1`, it will be
-clamped to `0.1`). This argument is only meaningful for
-`resty.lrucache.pureffi`.
+If the second argument is a number (pure FFI implementation only), it is treated
+as the `load-factor` for the FFI-based hash-table and should be in the open
+interval `(0, 1)`. If the second argument is a table, `opts.ratio` (Lua
+implementation only) optionally enables proactive eviction when the cache size
+reaches `floor(max_items * ratio)`; it is disabled unless you supply a ratio.
+`ratio` must be a two-decimal value strictly between 0 and 1.
 
 [Back to TOC](#table-of-contents)
 
@@ -175,8 +174,13 @@ set
 
 Sets a key with a value and an expiration time.
 
-When the cache is full, the cache will automatically evict the least recently
-used item.
+Default behavior: when the cache is full, it evicts the least recently used
+item. When the cache is created with an eviction ratio (Lua implementation) via
+[`cache:new`](#new) such as `lrucache.new(200, { ratio = 0.9 })`, `set`
+triggers a secondary eviction once the size crosses `floor(size * ratio)`: it
+scans up to 5 nodes from the tail, evicting the first expired entry it finds
+and otherwise moving non-expired nodes to the head (skipping eviction if none
+are expired). With no `ratio` configured, this scan remains disabled.
 
 The optional `ttl` argument specifies the expiration time. The time value is in
 seconds, but you can also specify the fraction number part (e.g. `0.25`). A nil

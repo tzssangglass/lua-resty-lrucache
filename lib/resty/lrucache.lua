@@ -58,7 +58,7 @@ ffi.cdef[[
 local queue_arr_type = ffi.typeof("lrucache_queue_t[?]")
 local queue_type = ffi.typeof("lrucache_queue_t")
 local NULL = ffi.null
-
+local MAX_SCAN = 5
 
 -- queue utility functions
 
@@ -152,9 +152,71 @@ local function ptr2num(ptr)
 end
 
 
-function _M.new(size)
+local function evict_node(self, node)
+    local oldkey = self.node2key[ptr2num(node)]
+    -- print(key, ": evicting oldkey: ", oldkey, ", oldnode: ",
+    --       tostring(node))
+    if oldkey then
+        self.hasht[oldkey] = nil
+        self.key2node[oldkey] = nil
+    end
+end
+
+
+local function pick_victim(self)
+    local cache_queue = self.cache_queue
+    local cursor = queue_last(cache_queue)
+    if cursor == cache_queue then
+        return nil
+    end
+
+    local now = ngx_now()
+    local count = 0
+    while cursor ~= cache_queue and count < MAX_SCAN do
+        local node = cursor
+        cursor = node.prev
+        count = count + 1
+
+        local expire = node.expire
+        if expire >= 0 and expire < now then
+            return node
+        end
+
+        -- keep non-expired/non-TTL nodes warm while continuing the scan
+        queue_remove(node)
+        queue_insert_head(cache_queue, node)
+    end
+
+    return nil
+end
+
+
+function _M.new(size, opts)
     if size < 1 then
         return nil, "size too small"
+    end
+
+    local ratio
+    if opts and opts.ratio then
+        -- 0 means disable eviction behavior
+        if type(opts.ratio) ~= "number" or opts.ratio <= 0 or opts.ratio >= 1 then
+            return false, "must be > 0 and < 1"
+        end
+
+        if tonumber(string.format("%.2f", opts.ratio)) ~= opts.ratio then
+            return false, "max 2 decimal places"
+        end
+
+        ratio = opts.ratio
+    end
+
+    local threshold
+
+    if ratio then
+        threshold = math.floor(size * ratio)
+        if threshold < 1 then
+            return false, "size too small for the given ratio"
+        end
     end
 
     local self = {
@@ -165,6 +227,7 @@ function _M.new(size)
         node2key = {},
         num_items = 0,
         max_items = size,
+        threshold = threshold,
     }
     setmetatable(self, mt)
     return self
@@ -239,14 +302,7 @@ function _M.set(self, key, value, ttl, flags)
             -- assert(not queue_is_empty(self.cache_queue))
             node = queue_last(self.cache_queue)
 
-            local oldkey = node2key[ptr2num(node)]
-            -- print(key, ": evicting oldkey: ", oldkey, ", oldnode: ",
-            --         tostring(node))
-            if oldkey then
-                hasht[oldkey] = nil
-                key2node[oldkey] = nil
-            end
-
+            evict_node(self, node)
         else
             -- take a free queue node
             node = queue_head(free_queue)
@@ -257,6 +313,13 @@ function _M.set(self, key, value, ttl, flags)
 
         node2key[ptr2num(node)] = key
         key2node[key] = node
+
+        if self.threshold and self.num_items >= self.threshold then
+            local victim = pick_victim(self)
+            if victim then
+                evict_node(self, victim)
+            end
+        end
     end
 
     queue_remove(node)
