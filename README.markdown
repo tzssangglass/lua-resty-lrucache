@@ -18,8 +18,8 @@ Table of Contents
     * [count](#count)
     * [capacity](#capacity)
     * [get_keys](#get_keys)
-    * [flush_all](#flush_all)
-* [Prerequisites](#prerequisites)
+    * [scavenge](#scavenge)
+    * [flush_all](#flush_all)* [Prerequisites](#prerequisites)
 * [Installation](#installation)
 * [Community](#community)
     * [English Mailing List](#english-mailing-list)
@@ -151,7 +151,7 @@ local lrucache = require "resty.lrucache.pureffi"
 
 new
 ---
-`syntax: cache, err = lrucache.new(max_items [, load_factor])`
+`syntax: cache, err = lrucache.new(max_items [, opts_or_load_factor])`
 
 Creates a new cache instance. Upon failure, returns `nil` and a string
 describing the error.
@@ -159,13 +159,12 @@ describing the error.
 The `max_items` argument specifies the maximal number of items this cache can
 hold.
 
-The `load-factor` argument designates the "load factor" of the FFI-based
-hash-table used internally by `resty.lrucache.pureffi`; the default value is
-0.5 (i.e. 50%); if the load factor is specified, it will be clamped to the
-range of `[0.1, 1]` (i.e. if load factor is greater than 1, it will be
-saturated to 1; likewise, if load-factor is smaller than `0.1`, it will be
-clamped to `0.1`). This argument is only meaningful for
-`resty.lrucache.pureffi`.
+If the second argument is a number (pure FFI implementation only), it is treated
+as the `load-factor` for the FFI-based hash-table and should be in the open
+interval `(0, 1)`. If the second argument is a table, `opts.ratio` (Lua
+implementation only) optionally enables proactive eviction when the cache size
+reaches `floor(max_items * ratio)`; it is disabled unless you supply a ratio.
+`ratio` must be a two-decimal value strictly between 0 and 1.
 
 [Back to TOC](#table-of-contents)
 
@@ -175,8 +174,12 @@ set
 
 Sets a key with a value and an expiration time.
 
-When the cache is full, the cache will automatically evict the least recently
-used item.
+Default behavior: when the cache is full, it evicts the least recently used
+item. When the cache is created with an eviction ratio (Lua implementation) via
+[`cache:new`](#new) such as `lrucache.new(200, { ratio = 0.9 })`, `set`
+triggers a secondary eviction once the size crosses `floor(size * ratio)` by
+calling `cache:scavenge()`. With no `ratio` configured, this secondary eviction
+is disabled.
 
 The optional `ttl` argument specifies the expiration time. The time value is in
 seconds, but you can also specify the fraction number part (e.g. `0.25`). A nil
@@ -257,6 +260,21 @@ table and will instead insert the keys in `res`, along with a trailing `nil`
 value.
 
 This method was added in the `v0.10` release.
+
+[Back to TOC](#table-of-contents)
+
+scavenge
+--------
+`syntax: key = cache:scavenge()`
+
+Scavenges for an expired item in the cache, removes it, and returns its key.
+
+This method iterates up to `MAX_SCAN` (currently 5) least recently used items from the tail of the cache queue.
+If an expired item is found, it is removed from the cache, and its key is returned.
+Non-expired items encountered during the scan are moved to the head of the queue, effectively refreshing their LRU status.
+If no expired item is found within the scanned range, `nil` is returned.
+
+This method was added in the `v0.15` release.
 
 [Back to TOC](#table-of-contents)
 

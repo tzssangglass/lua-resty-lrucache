@@ -58,7 +58,7 @@ ffi.cdef[[
 local queue_arr_type = ffi.typeof("lrucache_queue_t[?]")
 local queue_type = ffi.typeof("lrucache_queue_t")
 local NULL = ffi.null
-
+local MAX_SCAN = 5
 
 -- queue utility functions
 
@@ -152,9 +152,61 @@ local function ptr2num(ptr)
 end
 
 
-function _M.new(size)
+local function touch_scan(self)
+    local cache_queue = self.cache_queue
+    local cursor = queue_last(cache_queue)
+    if cursor == cache_queue then
+        return nil
+    end
+
+    local now = ngx_now()
+    local count = 0
+    while cursor ~= cache_queue and count < MAX_SCAN do
+        local node = cursor
+        cursor = node.prev
+        count = count + 1
+
+        local expire = node.expire
+        if expire >= 0 and expire < now then
+            return node
+        end
+
+        -- To prevent the scan from always checking the same non-expiring nodes
+        -- at the tail of the queue, this un-expired node is moved to the head.
+        -- This allows the next scan to check different nodes for expiration.
+        queue_remove(node)
+        queue_insert_head(cache_queue, node)
+    end
+
+    return nil
+end
+
+
+function _M.new(size, opts)
     if size < 1 then
         return nil, "size too small"
+    end
+
+    local ratio
+    if opts and opts.ratio then
+        if type(opts.ratio) ~= "number" or opts.ratio <= 0 or opts.ratio >= 1 then
+            return false, "ratio must be a number between (0, 1)"
+        end
+
+        if tonumber(string.format("%.2f", opts.ratio)) ~= opts.ratio then
+            return false, "max 2 decimal places"
+        end
+
+        ratio = opts.ratio
+    end
+
+    local threshold
+
+    if ratio then
+        threshold = math.floor(size * ratio)
+        if threshold < 1 then
+            return false, "size too small for the given ratio"
+        end
     end
 
     local self = {
@@ -165,6 +217,7 @@ function _M.new(size)
         node2key = {},
         num_items = 0,
         max_items = size,
+        threshold = threshold,
     }
     setmetatable(self, mt)
     return self
@@ -257,6 +310,10 @@ function _M.set(self, key, value, ttl, flags)
 
         node2key[ptr2num(node)] = key
         key2node[key] = node
+
+        if self.threshold and self.num_items >= self.threshold then
+            self:scavenge()
+        end
     end
 
     queue_remove(node)
@@ -274,6 +331,28 @@ function _M.set(self, key, value, ttl, flags)
     else
         node.user_flags = 0
     end
+end
+
+
+function _M.scavenge(self)
+    local victim = touch_scan(self)
+    if not victim then
+        return nil
+    end
+
+    local ptr = ptr2num(victim)
+    local victim_key = self.node2key[ptr]
+    if not victim_key then
+        return nil
+    end
+
+    self.hasht[victim_key] = nil
+    self.key2node[victim_key] = nil
+    self.node2key[ptr] = nil
+    queue_remove(victim)
+    queue_insert_tail(self.free_queue, victim)
+    self.num_items = self.num_items - 1
+    return victim_key
 end
 
 
