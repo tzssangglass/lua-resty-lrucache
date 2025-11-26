@@ -95,7 +95,7 @@ init failed: max 2 decimal places
 
 
 
-=== TEST 3a: new valid ratios
+=== TEST 4: new valid ratios
 --- config
     location = /t {
         content_by_lua_block {
@@ -133,7 +133,7 @@ ratio -1 success
 
 
 
-=== TEST 4: size * ratio < 1, use a as the threshold_items
+=== TEST 5: size * ratio < 1, use a as the threshold_items
 --- config
     location = /t {
         content_by_lua_block {
@@ -154,7 +154,7 @@ threshold_items: 1
 
 
 
-=== TEST 5: good ratio with 1 or 2 decimal places
+=== TEST 6: good ratio with 1 or 2 decimal places
 --- config
     location = /t {
         content_by_lua_block {
@@ -179,7 +179,7 @@ init success with ratio 0.25
 
 
 
-=== TEST 6: no set ttl, no evict of the latest set item
+=== TEST 7: no set ttl, no evict of the latest set item
 --- config
     location = /t {
         content_by_lua_block {
@@ -212,7 +212,7 @@ c: c
 
 
 
-=== TEST 7: same ttl for all items
+=== TEST 8: same ttl for all items
 --- config
     location = /t {
         content_by_lua_block {
@@ -250,7 +250,7 @@ expired a: nil
 
 
 
-=== TEST 8: the queue move-to-head on get() (tail stays cold nodes)
+=== TEST 9: the queue move-to-head on get() (tail stays cold nodes)
 --- config
     location = /t {
         content_by_lua_block {
@@ -282,7 +282,7 @@ a: a
 
 
 
-=== TEST 9: ratio scan rotates non-expiring nodes to reach expired ones
+=== TEST 10: ratio scan rotates non-expiring nodes to reach expired ones
 --- config
     location = /t {
         content_by_lua_block {
@@ -321,7 +321,7 @@ g: g
 
 
 
-=== TEST 10: no ratio, value can still be read after expired
+=== TEST 11: no ratio, value can still be read after expired
 --- config
     location = /t {
         content_by_lua_block {
@@ -344,7 +344,8 @@ g: g
 a: a
 
 
-=== TEST 11: scavenge API
+
+=== TEST 12: scavenge API
 --- config
     location = /t {
         content_by_lua_block {
@@ -389,7 +390,7 @@ evicted again: nil
 
 
 
-=== TEST 12: ratio = -1 disables proactive eviction
+=== TEST 13: ratio = -1 disables proactive eviction
 --- config
     location = /t {
         content_by_lua_block {
@@ -432,7 +433,7 @@ d: val_d
 
 
 
-=== TEST 13: ratio = 0 always triggers scavenge
+=== TEST 14: ratio = 0 always triggers scavenge
 --- config
     location = /t {
         content_by_lua_block {
@@ -462,7 +463,7 @@ count: 1
 
 
 
-=== TEST 14: ratio = 1 triggers scavenge when full
+=== TEST 15: ratio = 1 triggers scavenge when full
 --- config
     location = /t {
         content_by_lua_block {
