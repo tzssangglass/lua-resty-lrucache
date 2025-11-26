@@ -164,7 +164,10 @@ as the `load-factor` for the FFI-based hash-table and should be in the open
 interval `(0, 1)`. If the second argument is a table, `opts.ratio` (Lua
 implementation only) optionally enables proactive eviction when the cache size
 reaches `floor(max_items * ratio)`; it is disabled unless you supply a ratio.
-`ratio` must be a two-decimal value strictly between 0 and 1.
+`ratio` must be a two-decimal value.
+* `ratio = -1`: indicates that the proactive eviction is disabled.
+* `ratio = 0`: indicates that it is triggered always.
+* `ratio = (0, 1]`: indicates that it is triggered proportionally.
 
 [Back to TOC](#table-of-contents)
 

@@ -4,7 +4,7 @@ use t::TestLRUCache;
 
 repeat_each(2);
 
-plan tests => repeat_each() * (blocks() * 3);
+plan tests => repeat_each() * (15 * 3);
 
 log_level('info');
 no_long_string();
@@ -71,12 +71,7 @@ c: c
                 ngx.say("init failed: ", err)
             end
 
-            local c, err = lrucache.new(5, { ratio = 1 })
-            if not c then
-                ngx.say("init failed: ", err)
-            end
-
-            local c, err = lrucache.new(5, { ratio = 0 })
+            local c, err = lrucache.new(5, { ratio = -0.5 })
             if not c then
                 ngx.say("init failed: ", err)
             end
@@ -93,11 +88,48 @@ c: c
         }
     }
 --- response_body
-init failed: must be > 0 and < 1
-init failed: must be > 0 and < 1
-init failed: must be > 0 and < 1
-init failed: must be > 0 and < 1
+init failed: ratio must be -1 or between [0, 1]
+init failed: ratio must be -1 or between [0, 1]
+init failed: ratio must be -1 or between [0, 1]
 init failed: max 2 decimal places
+
+
+
+=== TEST 3a: new valid ratios
+--- config
+    location = /t {
+        content_by_lua_block {
+            local lrucache = require "resty.lrucache"
+            
+            -- ratio = 0 (always trigger)
+            local c, err = lrucache.new(5, { ratio = 0 })
+            if not c then
+                ngx.say("ratio 0 failed: ", err)
+            else
+                ngx.say("ratio 0 success")
+            end
+
+            -- ratio = 1 (trigger when full)
+            local c, err = lrucache.new(5, { ratio = 1 })
+            if not c then
+                ngx.say("ratio 1 failed: ", err)
+            else
+                ngx.say("ratio 1 success")
+            end
+
+            -- ratio = -1 (disabled)
+            local c, err = lrucache.new(5, { ratio = -1 })
+            if not c then
+                ngx.say("ratio -1 failed: ", err)
+            else
+                ngx.say("ratio -1 success")
+            end
+        }
+    }
+--- response_body
+ratio 0 success
+ratio 1 success
+ratio -1 success
 
 
 
@@ -351,3 +383,127 @@ stale a: nil
 b: b
 c: c
 evicted again: nil
+
+
+
+=== TEST 12: ratio = -1 disables proactive eviction
+--- config
+    location = /t {
+        content_by_lua_block {
+            local lrucache = require "resty.lrucache"
+            local c, err = lrucache.new(3, { ratio = -1 })
+            if not c then
+                ngx.say("init failed: ", err)
+                return
+            end
+
+            -- Fill the cache to capacity
+            c:set("a", "val_a")
+            c:set("b", "val_b")
+            c:set("c", "val_c")
+            ngx.say("count after 3 sets: ", c:count())
+
+            -- Set a 4th item. With ratio = -1, only LRU eviction should happen when full.
+            -- "a" should be evicted.
+            c:set("d", "val_d")
+            ngx.say("count after 4 sets: ", c:count())
+
+            local v_a = c:get("a")
+            local v_b = c:get("b")
+            local v_c = c:get("c")
+            local v_d = c:get("d")
+
+            ngx.say("a: ", v_a)
+            ngx.say("b: ", v_b)
+            ngx.say("c: ", v_c)
+            ngx.say("d: ", v_d)
+        }
+    }
+--- response_body
+count after 3 sets: 3
+count after 4 sets: 3
+a: nil
+b: val_b
+c: val_c
+d: val_d
+
+
+
+=== TEST 13: ratio = 0 always triggers scavenge
+--- config
+    location = /t {
+        content_by_lua_block {
+            local lrucache = require "resty.lrucache"
+            local c, err = lrucache.new(5, { ratio = 0 })
+            if not c then
+                ngx.say("init failed: ", err)
+                return
+            end
+
+            c:set("e1", "val_e1", 0.1) -- Expired item
+            ngx.sleep(0.15)
+            c:set("a", "val_a") -- This set should trigger scavenge
+
+            local v_e1, stale_v_el = c:get("e1")
+            local v_a = c:get("a")
+
+            ngx.say("e1: ", v_e1, ", stale e1: ", stale_v_el)
+            ngx.say("a: ", v_a)
+            ngx.say("count: ", c:count())
+        }
+    }
+--- response_body
+e1: nil, stale e1: nil
+a: val_a
+count: 1
+
+
+
+=== TEST 14: ratio = 1 triggers scavenge when full
+--- config
+    location = /t {
+        content_by_lua_block {
+            local lrucache = require "resty.lrucache"
+            local c, err = lrucache.new(3, { ratio = 1 })
+            if not c then
+                ngx.say("init failed: ", err)
+                return
+            end
+
+            c:set("a", "val_a")
+            c:set("b", "val_b")
+            ngx.say("count before full: ", c:count())
+
+            c:set("c_exp", "val_c_exp", 0.1) 
+            ngx.sleep(0.15)
+            
+            -- Move c_exp and b to head so 'a' becomes the LRU victim
+            c:get("c_exp") 
+            c:get("b")
+            
+            c:set("d", "val_d") 
+
+            -- Expectation:
+            -- 1. LRU evicts 'a' (tail).
+            -- 2. Scavenge removes 'c_exp' (expired).
+            -- 3. Remaining: 'b', 'd'.
+
+            local v_a, stale_v_a = c:get("a")
+            local v_b = c:get("b")
+            local v_c_exp, stale_v_c_exp = c:get("c_exp")
+            local v_d = c:get("d")
+
+            ngx.say("count after full: ", c:count())
+            ngx.say("a: ", v_a, ", stale a: ", stale_v_a)
+            ngx.say("b: ", v_b)
+            ngx.say("c_exp: ", v_c_exp, ", stale c_exp: ", stale_v_c_exp)
+            ngx.say("d: ", v_d)
+        }
+    }
+--- response_body
+count before full: 2
+count after full: 2
+a: nil, stale a: nil
+b: val_b
+c_exp: nil, stale c_exp: nil
+d: val_d

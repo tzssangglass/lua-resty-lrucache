@@ -189,8 +189,8 @@ function _M.new(size, opts)
 
     local ratio
     if opts and opts.ratio then
-        if type(opts.ratio) ~= "number" or opts.ratio <= 0 or opts.ratio >= 1 then
-            return false, "ratio must be a number between (0, 1)"
+        if type(opts.ratio) ~= "number" or (opts.ratio < 0 and opts.ratio ~= -1) or opts.ratio > 1 then
+            return false, "ratio must be -1 or between [0, 1]"
         end
 
         if tonumber(string.format("%.2f", opts.ratio)) ~= opts.ratio then
@@ -200,12 +200,16 @@ function _M.new(size, opts)
         ratio = opts.ratio
     end
 
-    local threshold
+    local threshold_items
 
-    if ratio then
-        threshold = math.floor(size * ratio)
-        if threshold < 1 then
-            return false, "size too small for the given ratio"
+    if ratio and ratio >= 0 then
+        if ratio == 0 then
+            threshold_items = 1
+        else
+            threshold_items = math.floor(size * ratio)
+            if threshold_items < 1 then
+                return false, "size too small for the given ratio"
+            end
         end
     end
 
@@ -217,7 +221,7 @@ function _M.new(size, opts)
         node2key = {},
         num_items = 0,
         max_items = size,
-        threshold = threshold,
+        threshold_items = threshold_items,
     }
     setmetatable(self, mt)
     return self
@@ -311,7 +315,7 @@ function _M.set(self, key, value, ttl, flags)
         node2key[ptr2num(node)] = key
         key2node[key] = node
 
-        if self.threshold and self.num_items >= self.threshold then
+        if self.threshold_items and self.num_items >= self.threshold_items then
             self:scavenge()
         end
     end
