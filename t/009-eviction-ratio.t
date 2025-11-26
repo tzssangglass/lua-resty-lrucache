@@ -133,7 +133,7 @@ ratio -1 success
 
 
 
-=== TEST 4: size too small for the given ratio
+=== TEST 4: size * ratio < 1, use a as the threshold_items
 --- config
     location = /t {
         content_by_lua_block {
@@ -144,10 +144,13 @@ ratio -1 success
             else
                 ngx.say("init success")
             end
+
+            ngx.say("threshold_items: ", c.threshold_items)
         }
     }
 --- response_body
-init failed: size too small for the given ratio
+init success
+threshold_items: 1
 
 
 

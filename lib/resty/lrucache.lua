@@ -12,6 +12,8 @@ local setmetatable = setmetatable
 local tonumber = tonumber
 local type = type
 local new_tab
+local math_max = math.max
+
 do
     local ok
     ok, new_tab = pcall(require, "table.new")
@@ -206,10 +208,7 @@ function _M.new(size, opts)
         if ratio == 0 then
             threshold_items = 1
         else
-            threshold_items = math.floor(size * ratio)
-            if threshold_items < 1 then
-                return false, "size too small for the given ratio"
-            end
+            threshold_items = math_max(math.floor(size * ratio), 1)
         end
     end
 
